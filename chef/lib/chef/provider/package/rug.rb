@@ -78,7 +78,10 @@ class Chef
             raise Chef::Exceptions::Package, "rug failed - #{status.inspect}!"
           end
 
-
+          if @candidate_version == ''
+            raise Chef::Exceptions::Package, "rug does not have a version of package #{@new_resource.package_name}"
+          end
+          
           Chef::Log.debug("rug current resource      #{@current_resource}")
           @current_resource
         end
