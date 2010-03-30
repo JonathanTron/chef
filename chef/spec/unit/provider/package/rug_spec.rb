@@ -24,14 +24,14 @@ describe Chef::Provider::Package::Rug, "load_current_resource" do
     @new_resource = mock("Chef::Resource::Package",
       :null_object => true,
       :name => "cups",
-      :version => nil,
+      :version => "1.0",
       :package_name => "cups",
       :updated => nil
     )
     @current_resource = mock("Chef::Resource::Package",
       :null_object => true,
       :name => "cups",
-      :version => nil,
+      :version => "1.0",
       :package_name => nil,
       :updated => nil
     )
@@ -40,10 +40,12 @@ describe Chef::Provider::Package::Rug, "load_current_resource" do
 
     @provider = Chef::Provider::Package::Rug.new(@node, @new_resource)
     Chef::Resource::Package.stub!(:new).and_return(@current_resource)
-    @provider.stub!(:popen4).and_return(@status)
+    @provider.stub(:popen4).and_return(@status)
     @stderr = mock("STDERR", :null_object => true)
     @stdout = mock("STDERR", :null_object => true)
     @pid = mock("PID", :null_object => true)
+    @stdout.stub!(:each).and_yield("Version: 1.0")
+    @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(@status)
   end
 
   it "should create a current resource with the name of the new_resource" do
@@ -57,7 +59,7 @@ describe Chef::Provider::Package::Rug, "load_current_resource" do
   end
 
   it "should run rug info with the package name" do
-    @provider.should_receive(:popen4).with("rug info #{@new_resource.package_name}").and_return(@status)
+    @provider.should_receive(:popen4).with("rug info #{@new_resource.package_name}").and_yield(@pid, @stdin, @stdout, @stderr).and_return(@status)
     @provider.load_current_resource
   end
 
@@ -68,16 +70,15 @@ describe Chef::Provider::Package::Rug, "load_current_resource" do
   end
 
   it "should set the installed version to nil on the current resource if rug info installed version is (none)" do
-    @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(@status)
     @current_resource.should_receive(:version).with(nil).and_return(true)
     @provider.load_current_resource
   end
 
   it "should set the installed version if rug info has one" do
     @stdout.stub!(:each).and_yield("Version: 1.0").
-      and_yield("Installed: Yes")
-    @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(@status)
-    @current_resource.should_receive(:version).with("1.0").and_return(true)
+      and_yield("Installed: Yes").
+      and_yield("Status: out-of-date (version 0.9 installed)")
+    @current_resource.should_receive(:version).with("0.9").and_return(true)
     @provider.load_current_resource
   end
 
@@ -85,8 +86,6 @@ describe Chef::Provider::Package::Rug, "load_current_resource" do
     @stdout.stub!(:each).and_yield("Version: 1.0").
       and_yield("Installed: No").
       and_yield("Status: out-of-date (version 0.9 installed)")
-
-    @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(@status)
     @provider.load_current_resource
     @provider.candidate_version.should eql("1.0")
   end
@@ -101,18 +100,12 @@ describe Chef::Provider::Package::Rug, "load_current_resource" do
     lambda { @provider.load_current_resource }.should_not raise_error(Chef::Exceptions::Package)
   end
 
+  it "should raise an exception if rug info does not return a candidate version" do
+    @stdout.stub!(:each)
+    lambda { @provider.load_current_resource }.should raise_error(Chef::Exceptions::Package)
+  end
 
-  # In my implementation it is not possible to not have a candidate version
-#  it "should raise an exception if zypper info does not return a candidate version" do
-#    @stdout.stub!(:each).and_yield("Version: 1.0").
-#      and_yield("Installed: No").
-#      and_yield("Status: out-of-date (version 0.9 installed)")
-#
-#    @provider.stub!(:popen4).and_yield(@pid, @stdin, @stdout, @stderr).and_return(@status)
-#    lambda { @provider.load_current_resource }.should raise_error(Chef::Exceptions::Package)
-#  end
-
-  it "should return the current resouce" do
+  it "should return the current resource" do
     @provider.load_current_resource.should eql(@current_resource)
   end
 end
@@ -141,18 +134,6 @@ describe Chef::Provider::Package::Rug, "install_package" do
     })
     @provider.install_package("emacs", "1.0")
   end
-
-  #  it "should run apt-get install with the package name and version and options if specified" do
-  #    @provider.should_receive(:run_command_with_systems_locale).with({
-  #      :command => "apt-get -q -y --force-yes install emacs=1.0",
-  #      :environment => {
-  #        "DEBIAN_FRONTEND" => "noninteractive"
-  #      }
-  #    })
-  #    @new_resource.stub!(:options).and_return("--force-yes")
-  #
-  #    @provider.install_package("emacs", "1.0")
-  #  end
 end
 
 describe Chef::Provider::Package::Rug, "upgrade_package" do
@@ -202,18 +183,6 @@ describe Chef::Provider::Package::Rug, "remove_package" do
     })
     @provider.remove_package("emacs", "1.0")
   end
-
-  #  it "should run apt-get remove with the package name and options if specified" do
-  #    @provider.should_receive(:run_command_with_systems_locale).with({
-  #      :command => "apt-get -q -y --force-yes remove emacs",
-  #      :environment => {
-  #        "DEBIAN_FRONTEND" => "noninteractive"
-  #      }
-  #    })
-  #    @new_resource.stub!(:options).and_return("--force-yes")
-  #
-  #    @provider.remove_package("emacs", "1.0")
-  #  end
 end
 
 describe Chef::Provider::Package::Rug, "purge_package" do
@@ -235,51 +204,4 @@ describe Chef::Provider::Package::Rug, "purge_package" do
     @provider.should_receive(:remove_package).with("emacs", "1.0")
     @provider.purge_package("emacs", "1.0")
   end
-
-  #  it "should run apt-get purge with the package name and options if specified" do
-  #    @provider.should_receive(:run_command_with_systems_locale).with({
-  #      :command => "apt-get -q -y --force-yes purge emacs",
-  #    })
-  #    @new_resource.stub!(:options).and_return("--force-yes")
-  #
-  #    @provider.purge_package("emacs", "1.0")
-  #  end
 end
-
-#describe Chef::Provider::Package::Zypper, "preseed_package" do
-#  before(:each) do
-#    @node = mock("Chef::Node", :null_object => true)
-#    @new_resource = mock("Chef::Resource::Package",
-#      :null_object => true,
-#      :name => "emacs",
-#      :version => nil,
-#      :package_name => "emacs",
-#      :updated => nil,
-#      :response_file => "emacs-10.seed"
-#    )
-#    @provider = Chef::Provider::Package::Apt.new(@node, @new_resource)
-#    @provider.stub!(:get_preseed_file).and_return("/tmp/emacs-10.seed")
-#    @provider.stub!(:run_command_with_systems_locale).and_return(true)
-#  end
-#
-#  it "should get the full path to the preseed response file" do
-#    @provider.should_receive(:get_preseed_file).with("emacs", "10").and_return("/tmp/emacs-10.seed")
-#    @provider.preseed_package("emacs", "10")
-#  end
-#
-#  it "should run debconf-set-selections on the preseed file if it has changed" do
-#    @provider.should_receive(:run_command_with_systems_locale).with({
-#      :command => "debconf-set-selections /tmp/emacs-10.seed",
-#      :environment => {
-#        "DEBIAN_FRONTEND" => "noninteractive"
-#      }
-#    }).and_return(true)
-#    @provider.preseed_package("emacs", "10")
-#  end
-#
-#  it "should not run debconf-set-selections if the preseed file has not changed" do
-#    @provider.stub!(:get_preseed_file).and_return(false)
-#    @provider.should_not_receive(:run_command_with_systems_locale)
-#    @provider.preseed_package("emacs", "10")
-#  end
-#end

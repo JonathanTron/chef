@@ -34,6 +34,7 @@ class Chef
           is_installed=false
           version=''
           is_out_of_date=false
+          oud_version=''
           Chef::Log.debug("Checking rug for #{@new_resource.package_name}")
           status = popen4("rug info #{@new_resource.package_name}") do |pid, stdin, stdout, stderr|
             stdout.each do |line|
@@ -55,14 +56,14 @@ class Chef
             end
           end
 
-          if is_installed==false
+          if !is_installed
             @candidate_version=version
             @current_resource.version(nil)
             Chef::Log.debug("rug installed false");
           end
 
-          if is_installed==true
-            if is_out_of_date==true
+          if is_installed
+            if is_out_of_date
               @current_resource.version(oud_version)
               @candidate_version=version
               Chef::Log.debug("rug installed outofdate");
